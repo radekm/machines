@@ -211,5 +211,42 @@ class MachinesTest {
         assertTrue(m.stoppedBy is StopMachineException)
     }
 
+    @Test
+    fun `suspending function with side effect inside machine`() {
+        var lastString: String? = null
+
+        suspend fun MachineScope<String, Int>.lengthWithSideEffect() {
+            lastString = await()
+            yield(lastString!!.length)
+        }
+
+        val m = machine<String, Int> {
+            lastString = "hello"
+            lengthWithSideEffect()
+        }
+
+        assertEquals(CREATED, m.state)
+        assertEquals(null, m.stoppedBy)
+        assertEquals(null, lastString)
+
+        m.start()
+
+        assertEquals(NEEDS_INPUT, m.state)
+        assertEquals(null, m.stoppedBy)
+        assertEquals("hello", lastString)
+
+        m.feed("world")
+
+        assertEquals(HAS_OUTPUT, m.state)
+        assertEquals(null, m.stoppedBy)
+        assertEquals("world", lastString)
+
+        assertEquals("world".length, m.take())
+
+        assertEquals(STOPPED, m.state)
+        assertEquals(null, m.stoppedBy)
+        assertEquals("world", lastString)
+    }
+
     // TODO Test what happens when inappropriate method is called.
 }

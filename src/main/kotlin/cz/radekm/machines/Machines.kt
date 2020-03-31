@@ -40,7 +40,7 @@ interface MachineScope<I, O> {
 
 class StopMachineException : Exception()
 
-class MachineBuilder<I, O>() : Machine<I, O>, MachineScope<I, O>, Continuation<Unit> {
+private class MachineBuilder<I, O>() : Machine<I, O>, MachineScope<I, O>, Continuation<Unit> {
     // When modifying internal state we always switch to `RUNNING`.
     // We switch back from `RUNNING` only after all other variables
     // have been updated to correct values.
@@ -62,7 +62,7 @@ class MachineBuilder<I, O>() : Machine<I, O>, MachineScope<I, O>, Continuation<U
     // region Implementation of Machine<I, O>
 
     override fun start() {
-        check(state == CREATED)
+        check(state == CREATED) { "start: Invalid state" }
         // Before modifying internal state we should switch to `RUNNING`.
         state = RUNNING
         val step = nextStepAfterCreation!!
@@ -77,7 +77,7 @@ class MachineBuilder<I, O>() : Machine<I, O>, MachineScope<I, O>, Continuation<U
     }
 
     override fun feed(input: I) {
-        check(state == NEEDS_INPUT)
+        check(state == NEEDS_INPUT) { "feed: Invalid state" }
         state = RUNNING
         val step = nextStepAfterAwait!!
         nextStepAfterAwait = null
@@ -87,7 +87,7 @@ class MachineBuilder<I, O>() : Machine<I, O>, MachineScope<I, O>, Continuation<U
     }
 
     override fun take(): O {
-        check(state == HAS_OUTPUT)
+        check(state == HAS_OUTPUT) { "take: Invalid state" }
         state = RUNNING
         val output = valueToTake!!
         valueToTake = null
@@ -101,13 +101,21 @@ class MachineBuilder<I, O>() : Machine<I, O>, MachineScope<I, O>, Continuation<U
     }
 
     override fun stop() {
-        var step: Continuation<*>?
         val origState = state
+        check(origState == CREATED || origState == NEEDS_INPUT || origState == HAS_OUTPUT) {
+            "stop: Invalid state"
+        }
+
+        var step: Continuation<*>?
         state = RUNNING // Switch to running before modifying internal state.
         when (origState) {
             CREATED -> {
                 step = nextStepAfterCreation!!
                 nextStepAfterCreation = null
+            }
+            NEEDS_INPUT -> {
+                step = nextStepAfterAwait!!
+                nextStepAfterAwait = null
             }
             HAS_OUTPUT -> {
                 // TODO Maybe we should log this event or call some callback?
@@ -116,11 +124,7 @@ class MachineBuilder<I, O>() : Machine<I, O>, MachineScope<I, O>, Continuation<U
                 step = nextStepAfterYield!!
                 nextStepAfterYield = null
             }
-            NEEDS_INPUT -> {
-                step = nextStepAfterAwait!!
-                nextStepAfterAwait = null
-            }
-            else -> error("Unexpected state $origState")
+            else -> error("Internal error: Impossible")
         }
         step.resumeWith(Result.failure(StopMachineException()))
     }
@@ -132,6 +136,8 @@ class MachineBuilder<I, O>() : Machine<I, O>, MachineScope<I, O>, Continuation<U
     // region Implementation of MachineScope<I, O>
 
     override suspend fun await(): I {
+        check(state == RUNNING) { "Internal error: Impossible" }
+
         state = NEEDS_INPUT
         return suspendCoroutineUninterceptedOrReturn { c ->
             nextStepAfterAwait = c
@@ -140,6 +146,8 @@ class MachineBuilder<I, O>() : Machine<I, O>, MachineScope<I, O>, Continuation<U
     }
 
     override suspend fun yield(output: O) {
+        check(state == RUNNING) { "Internal error: Impossible" }
+
         valueToTake = output
         state = HAS_OUTPUT
         return suspendCoroutineUninterceptedOrReturn { c ->
@@ -156,6 +164,8 @@ class MachineBuilder<I, O>() : Machine<I, O>, MachineScope<I, O>, Continuation<U
 
     // Completion continuation implementation
     override fun resumeWith(result: Result<Unit>) {
+        check(state == RUNNING) { "Internal error: Impossible" }
+
         stoppedBy = result.exceptionOrNull()
         state = STOPPED
     }
