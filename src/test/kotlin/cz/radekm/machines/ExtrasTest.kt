@@ -5,6 +5,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 import kotlin.test.fail
 
+@ExperimentalStdlibApi
 class ExtrasTest {
     @Test
     fun `feed not enough elements`() {
@@ -152,4 +153,97 @@ class ExtrasTest {
         assertTrue(m.stoppedBy is RuntimeException)
         assertEquals(listOf(-1, -2, -3), output)
     }
+
+    fun createTrimThenLenghtPipeline(): Pipeline<String, Int> {
+        val trim = machine<String, String> {
+            while (true) {
+                yield(await().trim())
+            }
+        }
+        val length = machine<String, Int> {
+            while (true) {
+                yield(await().length)
+            }
+        }
+        return Pipeline.create(trim, length)
+    }
+
+    @Test
+    fun `pipeline where every machine immediately outputs`() {
+        val pipeline = createTrimThenLenghtPipeline()
+        val trimMachine = pipeline.machines[0]
+        val lengthMachine = pipeline.machines[1]
+        pipeline.start()
+
+        val feedOutput = mutableListOf<Int>()
+        pipeline.feedCb(listOf("hello", "  dog"), mutableListOf(), mutableListOf(), { _, _ -> fail() }) {
+            feedOutput += it
+        }
+        assertEquals(listOf(5, 3), feedOutput)
+        assertEquals(trimMachine.state, NEEDS_INPUT)
+        assertEquals(lengthMachine.state, NEEDS_INPUT)
+
+        val drainOutput = mutableListOf<Int>()
+        pipeline.drainCb(mutableListOf(), mutableListOf(), { _, _ -> fail() }) {
+            drainOutput += it
+        }
+        assertEquals(listOf<Int>(), drainOutput)
+        assertEquals(trimMachine.state, STOPPED)
+        assertEquals(lengthMachine.state, STOPPED)
+    }
+
+    fun createBufferThenDoublePipeline(): Pipeline<Int, Int> {
+        val buffer = machine<Int, Int> {
+            val q = ArrayDeque<Int>()
+            try {
+                while (true) {
+                    q.addLast(await())
+                    while (q.size > 3) {
+                        yield(q.removeFirst())
+                    }
+                }
+            } finally {
+                while (q.isNotEmpty()) {
+                    yield(q.removeFirst())
+                }
+            }
+        }
+        val double = machine<Int, Int> {
+            while (true) {
+                yield(await() * 2)
+            }
+        }
+        return Pipeline.create(buffer, double)
+    }
+
+    @Test
+    fun `pipeline where machine buffers elements but outputs them when stopped`() {
+        val pipeline = createBufferThenDoublePipeline()
+        val bufferMachine = pipeline.machines[0]
+        val doubleMachine = pipeline.machines[1]
+        pipeline.start()
+
+        val feedOutput = mutableListOf<Int>()
+        pipeline.feedCb(listOf(1, 2, 3, 4, 5, 6), mutableListOf(), mutableListOf(), { _, _ -> fail() }) {
+            feedOutput += it
+        }
+        assertEquals(listOf(2, 4, 6), feedOutput)
+        assertEquals(bufferMachine.state, NEEDS_INPUT)
+        assertEquals(doubleMachine.state, NEEDS_INPUT)
+
+        val drainOutput = mutableListOf<Int>()
+        pipeline.drainCb(mutableListOf(), mutableListOf(), { _, _ -> fail() }) {
+            drainOutput += it
+        }
+        assertEquals(listOf(8, 10, 12), drainOutput)
+        assertEquals(bufferMachine.state, STOPPED)
+        assertEquals(doubleMachine.state, STOPPED)
+    }
+
+    // TODO Test piepeline where middle machine stops.
+    // TODO Test piepeline where last machine stops.
+    // TODO Test pipeline where 1st machine stops.
+    // TODO Test pipeline with 3 machines where every machine has lost input.
+    // TODO Test buffers which already contain elements.
+    // TODO Test feedCb with same buffers.
 }
