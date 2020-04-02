@@ -78,7 +78,8 @@ class Pipeline<I, O> private constructor(val machines: Array<Machine<*, *>>) {
      * which is output of the pipeline.
      *
      * After calling this every machine has state
-     * `NEEDS_INPUT` or `STOPPED`.
+     * `NEEDS_INPUT` or `STOPPED`. Returns `true`
+     * iff every machine has state `NEEDS_INPUT`.
      *
      * `buffer` and `buffer2` must be different lists.
      * `input` and `buffer` must also be different lists.
@@ -96,7 +97,9 @@ class Pipeline<I, O> private constructor(val machines: Array<Machine<*, *>>) {
             buffer2: MutableList<Any>,
             crossinline cbLostInput: (Int, Any) -> Unit,
             crossinline cbOutput: (O) -> Unit
-    ) {
+    ): Boolean {
+        var allMachinesActive = true
+
         var inputBuffer: List<Any> = input as List<Any>
         var outputBuffer: MutableList<Any> = buffer
         var nextInputBuffer = buffer
@@ -107,6 +110,7 @@ class Pipeline<I, O> private constructor(val machines: Array<Machine<*, *>>) {
 
             val m = machines[machineIndex] as Machine<Any, Any>
             var fed = m.feedManyCb(inputBuffer) { outputBuffer.add(it) }
+            allMachinesActive = allMachinesActive && m.state == NEEDS_INPUT
 
             // Input which wasn't fed is lost.
             while (fed < inputBuffer.size) {
@@ -124,9 +128,11 @@ class Pipeline<I, O> private constructor(val machines: Array<Machine<*, *>>) {
 
         buffer.clear()
         buffer2.clear()
+
+        return allMachinesActive
     }
 
-    // Same as `feedCb` except that it doesn't use any input
+    // Similar to `feedCb` except that it doesn't use any input
     // and after feeding the machine it calls drain to ensure that
     // machine stops.
     /**

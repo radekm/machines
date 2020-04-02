@@ -154,6 +154,25 @@ class ExtrasTest {
         assertEquals(listOf(-1, -2, -3), output)
     }
 
+    @Test
+    fun `empty pipeline`() {
+        val pipeline = Pipeline.create<Int, Int>()
+        pipeline.start()
+
+        val feedOutput = mutableListOf<Int>()
+        val active = pipeline.feedCb(listOf(5, 6, 7, 8), mutableListOf(), mutableListOf(), { _, _ -> fail() }) {
+            feedOutput += it
+        }
+        assertEquals(listOf(5, 6, 7, 8), feedOutput)
+        assertTrue(active)
+
+        val drainOutput = mutableListOf<Int>()
+        pipeline.drainCb(mutableListOf(), mutableListOf(), { _, _ -> fail() }) {
+            drainOutput += it
+        }
+        assertEquals(listOf<Int>(), drainOutput)
+    }
+
     fun createTrimThenLenghtPipeline(): Pipeline<String, Int> {
         val trim = machine<String, String> {
             while (true) {
@@ -176,10 +195,11 @@ class ExtrasTest {
         pipeline.start()
 
         val feedOutput = mutableListOf<Int>()
-        pipeline.feedCb(listOf("hello", "  dog"), mutableListOf(), mutableListOf(), { _, _ -> fail() }) {
+        val active = pipeline.feedCb(listOf("hello", "  dog"), mutableListOf(), mutableListOf(), { _, _ -> fail() }) {
             feedOutput += it
         }
         assertEquals(listOf(5, 3), feedOutput)
+        assertTrue(active)
         assertEquals(trimMachine.state, NEEDS_INPUT)
         assertEquals(lengthMachine.state, NEEDS_INPUT)
 
@@ -224,10 +244,11 @@ class ExtrasTest {
         pipeline.start()
 
         val feedOutput = mutableListOf<Int>()
-        pipeline.feedCb(listOf(1, 2, 3, 4, 5, 6), mutableListOf(), mutableListOf(), { _, _ -> fail() }) {
+        val active = pipeline.feedCb(listOf(1, 2, 3, 4, 5, 6), mutableListOf(), mutableListOf(), { _, _ -> fail() }) {
             feedOutput += it
         }
         assertEquals(listOf(2, 4, 6), feedOutput)
+        assertTrue(active)
         assertEquals(bufferMachine.state, NEEDS_INPUT)
         assertEquals(doubleMachine.state, NEEDS_INPUT)
 
