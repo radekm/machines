@@ -59,17 +59,24 @@ suspend fun <I, O, E> TeeScope<I, O, E>.yieldEarly(e: E) {
     machineContext.earlyOutput.append(e)
 }
 
-class PipelineBuilder<I> private constructor(private val setOutputOfLastMachine: (RingBuffer<I>) -> Unit) {
-    constructor() : this({})
+class PipelineBuilder<I> private constructor(
+        private val machines: MutableList<Machine<Tee<*, *, *>>>,
+        private val setOutputOfLastMachine: (RingBuffer<I>) -> Unit
+) {
+    constructor() : this(mutableListOf(), {})
 
     fun <O> attach(pipe: Machine<Tee<I, O, Nothing>>): PipelineBuilder<O> {
         setOutputOfLastMachine(pipe.machineContext.input)
-        return PipelineBuilder<O> { pipe.machineContext.output = it }
+        machines.add(pipe as Machine<Tee<*, *, *>>)
+        return PipelineBuilder<O>(machines) { pipe.machineContext.output = it }
     }
 
     fun <O, E> attach(tee: Machine<Tee<I, O, E>>, earlyOutput: Appendable<E>): PipelineBuilder<O> {
         tee.machineContext.earlyOutput = earlyOutput
         setOutputOfLastMachine(tee.machineContext.input)
-        return PipelineBuilder<O> { tee.machineContext.output = it }
+        machines.add(tee as Machine<Tee<*, *, *>>)
+        return PipelineBuilder<O>(machines) { tee.machineContext.output = it }
     }
+
+    fun build(): List<Machine<Tee<*, *, *>>> = machines
 }

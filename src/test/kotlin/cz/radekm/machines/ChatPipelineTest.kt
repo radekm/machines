@@ -51,11 +51,10 @@ class ChatDownstream(waiting: RequestsWaitingForResponse, newRequests: Appendabl
         }
     }
 
-    init {
-        PipelineBuilder<Response>()
-                .attach(fillDateTime)
-                .attach(ensureEveryRequestHasResponse, newRequests)
-    }
+    val pipeline: List<Machine<Tee<*, *, *>>> = PipelineBuilder<Response>()
+            .attach(fillDateTime)
+            .attach(ensureEveryRequestHasResponse, newRequests)
+            .build()
 }
 
 class ChatUpstream(waiting: RequestsWaitingForResponse) {
@@ -78,11 +77,10 @@ class ChatUpstream(waiting: RequestsWaitingForResponse) {
         }
     }
 
-    init {
-        PipelineBuilder<Request>()
+    val pipeline = PipelineBuilder<Request>()
                 .attach(fillDateTimeAndRequestId)
                 .attach(storeRequestWaitingForResponse, waiting)
-    }
+                .build()
 }
 
 class ChatPipelineTest {
