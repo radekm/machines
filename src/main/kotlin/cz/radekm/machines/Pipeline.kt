@@ -27,7 +27,7 @@ typealias TeeScope<I, O, E> = MachineScope<Tee<I, O, E>>
 
 @OptIn(ExperimentalTypeInference::class)
 fun <I, O, E> tee(
-        earlyOutput: RingBuffer<E>,
+        earlyOutput: Appendable<E>,
         @BuilderInference block: suspend TeeScope<I, O, E>.() -> Unit
 ): Machine<Tee<I, O, E>> = machine(Tee<I, O, E>(PauseReason.CREATED, RingBuffer(), RingBuffer(), earlyOutput), block)
 
