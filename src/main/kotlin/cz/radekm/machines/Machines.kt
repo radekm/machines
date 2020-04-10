@@ -11,121 +11,68 @@ import kotlin.experimental.ExperimentalTypeInference
 
 typealias State = Int
 
-const val CREATED: State = 0
+const val PAUSED: State = 0 // Initial state.
 const val RUNNING: State = 1
-const val NEEDS_INPUT: State = 2
-const val HAS_OUTPUT: State = 3
-const val STOPPED: State = 4
+const val STOPPED: State = 2
 
 @OptIn(ExperimentalTypeInference::class)
-fun <I, O> machine(@BuilderInference block: suspend MachineScope<I, O>.() -> Unit): Machine<I, O> {
-    val m = MachineBuilder<I, O>()
-    m.nextStepAfterCreation = block.createCoroutineUnintercepted(receiver = m, completion = m)
+fun <Ctx> machine(context: Ctx, @BuilderInference block: suspend MachineScope<Ctx>.() -> Unit): Machine<Ctx> {
+    val m = MachineBuilder(context)
+    m.nextStep = block.createCoroutineUnintercepted(receiver = m, completion = m)
     return m
 }
 
-interface Machine<I, O> {
+interface Machine<Ctx> {
+    val machineContext: Ctx
     val state: State
     val stoppedBy: Throwable?
-    fun start()
-    fun feed(input: I)
-    fun take(): O
-    fun stop()
+    fun resume()
+    fun cancel()
 }
 
-interface MachineScope<I, O> {
-    suspend fun await(): I
-    suspend fun yield(output: O)
+interface MachineScope<Ctx> {
+    val machineContext: Ctx
+    suspend fun pause()
 }
 
 class StopMachineException : Exception()
 
-private class MachineBuilder<I, O>() : Machine<I, O>, MachineScope<I, O>, Continuation<Unit> {
+private class MachineBuilder<Ctx>(override val machineContext: Ctx) : Machine<Ctx>, MachineScope<Ctx>, Continuation<Unit> {
     // When modifying internal state we always switch to `RUNNING`.
     // We switch back from `RUNNING` only after all other variables
     // have been updated to correct values.
-    override var state: State = CREATED
+    override var state: State = PAUSED
     override var stoppedBy: Throwable? = null
 
-    // Value produced by `yield`. Non-null iff `state == HAS_OUTPUT`.
-    private var valueToTake: O? = null
-
-    // Continuations.
-    // When `state in [RUNNING, STOPPED]` all of 3 continuations are `null`
-    // else exactly one continuation is defined.
-    internal var nextStepAfterCreation: Continuation<Unit>? = null
-    private var nextStepAfterAwait: Continuation<I>? = null
-    private var nextStepAfterYield: Continuation<Unit>? = null
+    // `null` when `state in [RUNNING, STOPPED]`.
+    internal var nextStep: Continuation<Unit>? = null
 
     // ------------------------------------------------------------------------------
 
-    // region Implementation of Machine<I, O>
+    // region Implementation of Machine<Ctx>
 
-    override fun start() {
-        check(state == CREATED) { "start: Invalid state" }
+    override fun resume() {
+        check(state == PAUSED) { "start: Invalid state" }
         // Before modifying internal state we should switch to `RUNNING`.
         state = RUNNING
-        val step = nextStepAfterCreation!!
-        nextStepAfterCreation = null
+        val step = nextStep!!
+        nextStep = null
 
-        // This call returns when the continuation suspends (because of call to `await` or `yield`)
+        // This call returns when the continuation suspends (because of call to `pause`)
         // or terminates (normally or because of exception).
         //
-        // If this continuation suspends then state will be `NEEDS_INPUT` or `HAS_INPUT`.
+        // If this continuation suspends then state will be `PAUSED`.
         // If it terminates then `resumeWith` sets the state to `STOPPED`.
         step.resume(Unit)
     }
 
-    override fun feed(input: I) {
-        check(state == NEEDS_INPUT) { "feed: Invalid state" }
+    override fun cancel() {
+        check(state == PAUSED) { "stop: Invalid state" }
+
         state = RUNNING
-        val step = nextStepAfterAwait!!
-        nextStepAfterAwait = null
+        val step = nextStep!!
+        nextStep = null
 
-        // Comment above `resume` in `start` holds here too.
-        step.resume(input)
-    }
-
-    override fun take(): O {
-        check(state == HAS_OUTPUT) { "take: Invalid state" }
-        state = RUNNING
-        val output = valueToTake!!
-        valueToTake = null
-        val step = nextStepAfterYield!!
-        nextStepAfterYield = null
-
-        // Comment above `resume` in `start` holds here too.
-        step.resume(Unit)
-
-        return output
-    }
-
-    override fun stop() {
-        val origState = state
-        check(origState == CREATED || origState == NEEDS_INPUT || origState == HAS_OUTPUT) {
-            "stop: Invalid state"
-        }
-
-        var step: Continuation<*>?
-        state = RUNNING // Switch to running before modifying internal state.
-        when (origState) {
-            CREATED -> {
-                step = nextStepAfterCreation!!
-                nextStepAfterCreation = null
-            }
-            NEEDS_INPUT -> {
-                step = nextStepAfterAwait!!
-                nextStepAfterAwait = null
-            }
-            HAS_OUTPUT -> {
-                // TODO Maybe we should log this event or call some callback?
-                // Throw away value which was not taken.
-                valueToTake = null
-                step = nextStepAfterYield!!
-                nextStepAfterYield = null
-            }
-            else -> error("Internal error: Impossible")
-        }
         step.resumeWith(Result.failure(StopMachineException()))
     }
 
@@ -133,25 +80,15 @@ private class MachineBuilder<I, O>() : Machine<I, O>, MachineScope<I, O>, Contin
 
     // ------------------------------------------------------------------------------
 
-    // region Implementation of MachineScope<I, O>
+    // region Implementation of MachineScope<Ctx>
 
-    override suspend fun await(): I {
+    override suspend fun pause() {
         check(state == RUNNING) { "Internal error: Impossible" }
 
-        state = NEEDS_INPUT
-        return suspendCoroutineUninterceptedOrReturn { c ->
-            nextStepAfterAwait = c
-            COROUTINE_SUSPENDED
-        }
-    }
-
-    override suspend fun yield(output: O) {
-        check(state == RUNNING) { "Internal error: Impossible" }
-
-        valueToTake = output
-        state = HAS_OUTPUT
-        return suspendCoroutineUninterceptedOrReturn { c ->
-            nextStepAfterYield = c
+        state = PAUSED
+        return suspendCoroutineUninterceptedOrReturn<Unit> { c ->
+            check(nextStep == null)
+            nextStep = c
             COROUTINE_SUSPENDED
         }
     }
@@ -163,6 +100,7 @@ private class MachineBuilder<I, O>() : Machine<I, O>, MachineScope<I, O>, Contin
     // region Implementation of Continuation<Unit>
 
     // Completion continuation implementation
+    // Called when machine stops.
     override fun resumeWith(result: Result<Unit>) {
         check(state == RUNNING) { "Internal error: Impossible" }
 
