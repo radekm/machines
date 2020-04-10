@@ -32,23 +32,18 @@ class RequestsWaitingForResponse : Appendable<Request> {
 }
 
 class ChatDownstream(waiting: RequestsWaitingForResponse, newRequests: Appendable<Request>) {
-    val fillDateTime = pipe<Response, Response> {
-        while (true) {
-            val resp = await()
-            resp.dateTime = ZonedDateTime.now()
-            yield(resp)
-        }
+    val fillDateTime = pipeTransform<Response, Response> { resp ->
+        resp.dateTime = ZonedDateTime.now()
+        yield(resp)
     }
 
-    val ensureEveryRequestHasResponse = tee<Response, Response, Request> {
-        while (true) {
-            val resp = await()
-            resp.requestId?.let { waiting.removeByRequestId(it) }
-            val threshold = ZonedDateTime.now().minusMinutes(5)
-            val requestsToResend = waiting.getRequestsOlderThan(threshold)
-            for (req in requestsToResend)
-                yieldEarly(req)
-        }
+    val ensureEveryRequestHasResponse = teeTransform<Response, Response, Request> { resp ->
+        resp.requestId?.let { waiting.removeByRequestId(it) }
+        val threshold = ZonedDateTime.now().minusMinutes(5)
+        val requestsToResend = waiting.getRequestsOlderThan(threshold)
+        for (req in requestsToResend)
+            yieldEarly(req)
+        yield(resp)
     }
 
     val pipeline: List<Machine<Tee<*, *, *>>> = PipelineBuilder<Response>()
@@ -58,23 +53,17 @@ class ChatDownstream(waiting: RequestsWaitingForResponse, newRequests: Appendabl
 }
 
 class ChatUpstream(waiting: RequestsWaitingForResponse) {
-    val fillDateTimeAndRequestId = pipe<Request, Request> {
-        while (true) {
-            val req = await()
-            req.dateTime = ZonedDateTime.now()
-            if (req.requestId == null) {
-                req.requestId = UUID.randomUUID().toString()
-            }
-            yield(req)
+    val fillDateTimeAndRequestId = pipeTransform<Request, Request> { req ->
+        req.dateTime = ZonedDateTime.now()
+        if (req.requestId == null) {
+            req.requestId = UUID.randomUUID().toString()
         }
+        yield(req)
     }
 
-    val storeRequestWaitingForResponse = tee<Request, Request, Request> {
-        while (true) {
-            val req = await()
-            yieldEarly(req)
-            yield(req)
-        }
+    val storeRequestWaitingForResponse = teeTransform<Request, Request, Request> { req ->
+        yieldEarly(req)
+        yield(req)
     }
 
     val pipeline = PipelineBuilder<Request>()

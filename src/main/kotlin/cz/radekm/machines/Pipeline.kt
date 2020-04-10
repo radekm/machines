@@ -35,6 +35,26 @@ fun <I, O> pipe(
         @BuilderInference block: suspend TeeScope<I, O, Nothing>.() -> Unit
 ): Machine<Tee<I, O, Nothing>> = tee(block)
 
+@OptIn(ExperimentalTypeInference::class)
+fun <I, O, E> teeTransform(
+        @BuilderInference block: suspend TeeScope<I, O, E>.(I) -> Unit
+): Machine<Tee<I, O, E>> = tee<I, O, E> {
+    while (true) {
+        val i = await()
+        block(i)
+    }
+}
+
+@OptIn(ExperimentalTypeInference::class)
+fun <I, O> pipeTransform(
+        @BuilderInference block: suspend TeeScope<I, O, Nothing>.(I) -> Unit
+): Machine<Tee<I, O, Nothing>> = pipe<I, O> {
+    while (true) {
+        val i = await()
+        block(i)
+    }
+}
+
 suspend fun <I, O, E> TeeScope<I, O, E>.await(): I {
     while (machineContext.input.isEmpty()) {
         machineContext.pauseReason = PauseReason.INPUT
