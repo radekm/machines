@@ -6,11 +6,11 @@ import kotlin.test.assertEquals
 class TeeTest {
     @Test
     fun `tee which yields only early output`() {
-        val earlyOutput = RingBuffer<Boolean>()
-        val m = tee<String, Int, Boolean>(earlyOutput) {
+        val m = tee<String, Int, Boolean> {
             yieldEarly(true)
             yieldEarly(false)
         }
+        val earlyOutput = m.machineContext.earlyOutput as RingBuffer
 
         assertMachinePaused(m, PauseReason.CREATED)
 
@@ -23,12 +23,12 @@ class TeeTest {
 
     @Test
     fun `tee which yields both outputs`() {
-        val earlyOutput = RingBuffer<Boolean>()
-        val m = tee<String, Int, Boolean>(earlyOutput) {
+        val m = tee<String, Int, Boolean> {
             yieldEarly(true)
             yieldEarly(false)
             yield(-1)
         }
+        val earlyOutput = m.machineContext.earlyOutput as RingBuffer
 
         assertMachinePaused(m, PauseReason.CREATED)
 
@@ -41,12 +41,12 @@ class TeeTest {
 
     @Test
     fun `tee which yields more early outputs than buffer capacity`() {
-        val earlyOutput = RingBuffer<Boolean>()
-        val m = tee<String, Int, Boolean>(earlyOutput) {
+        val m = tee<String, Int, Boolean> {
             repeat(DEFAULT_RING_BUFFER_CAPACITY + 1) {
                 yieldEarly(true)
             }
         }
+        val earlyOutput = m.machineContext.earlyOutput as RingBuffer
 
         assertMachinePaused(m, PauseReason.CREATED)
 

@@ -27,14 +27,13 @@ typealias TeeScope<I, O, E> = MachineScope<Tee<I, O, E>>
 
 @OptIn(ExperimentalTypeInference::class)
 fun <I, O, E> tee(
-        earlyOutput: Appendable<E>,
         @BuilderInference block: suspend TeeScope<I, O, E>.() -> Unit
-): Machine<Tee<I, O, E>> = machine(Tee<I, O, E>(PauseReason.CREATED, RingBuffer(), RingBuffer(), earlyOutput), block)
+): Machine<Tee<I, O, E>> = machine(Tee<I, O, E>(PauseReason.CREATED, RingBuffer(), RingBuffer(), RingBuffer()), block)
 
 @OptIn(ExperimentalTypeInference::class)
 fun <I, O> pipe(
         @BuilderInference block: suspend TeeScope<I, O, Nothing>.() -> Unit
-): Machine<Tee<I, O, Nothing>> = tee(RingBuffer<Nothing>(0), block)
+): Machine<Tee<I, O, Nothing>> = tee(block)
 
 suspend fun <I, O, E> TeeScope<I, O, E>.await(): I {
     while (machineContext.input.isEmpty()) {
@@ -60,7 +59,17 @@ suspend fun <I, O, E> TeeScope<I, O, E>.yieldEarly(e: E) {
     machineContext.earlyOutput.append(e)
 }
 
-infix fun <I, O> Machine<Tee<*, I, *>>.connectTo(other: Machine<Tee<I, O, *>>): Machine<Tee<I, O, *>> {
-    machineContext.output = other.machineContext.input
-    return other
+class PipelineBuilder<I> private constructor(private val setOutputOfLastMachine: (RingBuffer<I>) -> Unit) {
+    constructor() : this({})
+
+    fun <O> attach(pipe: Machine<Tee<I, O, Nothing>>): PipelineBuilder<O> {
+        setOutputOfLastMachine(pipe.machineContext.input)
+        return PipelineBuilder<O> { pipe.machineContext.output = it }
+    }
+
+    fun <O, E> attach(tee: Machine<Tee<I, O, E>>, earlyOutput: Appendable<E>): PipelineBuilder<O> {
+        tee.machineContext.earlyOutput = earlyOutput
+        setOutputOfLastMachine(tee.machineContext.input)
+        return PipelineBuilder<O> { tee.machineContext.output = it }
+    }
 }
