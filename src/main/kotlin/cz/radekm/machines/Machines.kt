@@ -22,6 +22,8 @@ fun <Ctx> machine(context: Ctx, @BuilderInference block: suspend MachineScope<Ct
     return m
 }
 
+// Machine doesn't implement `AutoCloseable` because context
+// may need a special treatment when closing the machine.
 interface Machine<Ctx> {
     val machineContext: Ctx
     val state: State
@@ -35,6 +37,7 @@ interface MachineScope<Ctx> {
     suspend fun pause()
 }
 
+// Always create new instance to prevent self-suppression in `Throwable.addSuppressed`.
 class StopMachineException : Exception()
 
 private class MachineBuilder<Ctx>(override val machineContext: Ctx) : Machine<Ctx>, MachineScope<Ctx>, Continuation<Unit> {
