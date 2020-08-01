@@ -40,10 +40,35 @@ fun <A> Machine<Cell<A>>.close() {
 
 // endregion
 
-// region Primitives
-
 interface GeneratorScope<O> {
     suspend fun yield(o: O)
+
+    suspend fun yieldAll(iterator: Iterator<O>) {
+        while (iterator.hasNext()) {
+            yield(iterator.next())
+        }
+    }
+
+    // `yieldAll` is not primitive but unfortunately making it extension function
+    // results in much worse type inference :-(
+
+    suspend fun yieldAll(elements: Iterable<O>) {
+        if (elements is Collection && elements.isEmpty()) return
+        return yieldAll(elements.iterator())
+    }
+
+    suspend fun yieldAll(sequence: Sequence<O>) {
+        return yieldAll(sequence.iterator())
+    }
+
+    // TODO Is this correct?
+    suspend fun yieldAll(generator: Generator<O>) {
+        generator.withMachine { machine ->
+            while (true) {
+                yield(machine.await())
+            }
+        }
+    }
 }
 
 interface GeneratorTransformScope<I, O> : GeneratorScope<O> {
@@ -119,7 +144,12 @@ class Generator<A>(private val block: suspend GeneratorScope<A>.() -> Unit) {
 @OptIn(ExperimentalTypeInference::class)
 fun <O> generator(@BuilderInference block: suspend GeneratorScope<O>.() -> Unit): Generator<O> = Generator(block)
 
-// endregion Primitives
+// FIXME Make this return a same generator every time.
+fun <A> emptyGenerator(): Generator<A> = generator {}
+
+fun <A> generatorOf(vararg elements: A): Generator<A> = if (elements.isEmpty()) emptyGenerator() else generator {
+    yieldAll(elements.iterator())
+}
 
 fun <A> Generator<A>.take(howMany: Int): Generator<A> = transform {
     repeat(howMany) {
@@ -142,6 +172,17 @@ fun <A, B> Generator<A>.flatMap(f: (A) -> Generator<B>): Generator<B> = transfor
 }
 
 fun <A, B> Generator<A>.map(f: (A) -> B): Generator<B> = transformItem { yield(f(it)) }
+
+// TODO Should be check that both generators generate same number of elements?
+infix fun <A, B> Generator<A>.zip(other: Generator<B>): Generator<Pair<A, B>> = generator {
+    withMachine { machineA ->
+        other.withMachine { machineB ->
+            while (true) {
+                yield(machineA.await() to machineB.await())
+            }
+        }
+    }
+}
 
 fun <A> Generator<A>.forEach(f: (A) -> Unit) = transformItem<Nothing> { f(it) }.run()
 
