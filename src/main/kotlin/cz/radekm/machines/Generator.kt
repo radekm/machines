@@ -4,8 +4,6 @@ import kotlin.experimental.ExperimentalTypeInference
 
 // region Extensions for machines
 
-typealias Cell<A> = RingBuffer<A>
-
 val <A> Machine<Cell<A>>.output
         get() = machineContext
 
@@ -56,7 +54,7 @@ private class GeneratorScopeImpl<O>(private val parentScope: MachineScope<Cell<O
             System.err.println("Fatal error: Yielding when output cell is full!")
             error("Output cell is full")
         }
-        parentScope.machineContext.append(o)
+        parentScope.machineContext.put(o)
         parentScope.pause()
     }
 }
@@ -90,8 +88,7 @@ class Generator<A>(private val block: suspend GeneratorScope<A>.() -> Unit) {
      *
      * Or use `withMachine` instead.
      */
-    // Warning: `capacity` must be 1, otherwise everything breaks.
-    fun toMachine(): Machine<Cell<A>> = machine(Cell(capacity = 1)) {
+    fun toMachine(): Machine<Cell<A>> = machine(Cell()) {
         GeneratorScopeImpl(this).block()
     }
 
@@ -138,6 +135,12 @@ fun <A, B> Generator<A>.flatMap(f: (A) -> Generator<B>): Generator<B> = transfor
 fun <A, B> Generator<A>.map(f: (A) -> B): Generator<B> = transformItem { yield(f(it)) }
 
 fun <A> Generator<A>.forEach(f: (A) -> Unit) = transformItem<Nothing> { f(it) }.run()
+
+fun <A> Generator<A>.toList(): List<A> {
+    val result = mutableListOf<A>()
+    forEach { result += it }
+    return result
+}
 
 fun main() {
     generator {
