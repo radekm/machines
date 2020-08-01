@@ -2,6 +2,10 @@ package cz.radekm.machines
 
 import kotlin.experimental.ExperimentalTypeInference
 
+// TODO Exception handling and propagation through generators!!!
+//      We should define behavior for special exceptions `StopMachineException` and `AwaitFailedException`
+//      and also for other critical and non-critical exceptions.
+
 // region Extensions for machines
 
 val <A> Machine<Cell<A>>.output
@@ -126,9 +130,14 @@ fun <A> Generator<A>.take(howMany: Int): Generator<A> = transform {
 fun <A, B> Generator<A>.flatMap(f: (A) -> Generator<B>): Generator<B> = transformItem { a ->
     val generatorB = f(a)
     generatorB.withMachine { machineB ->
-        while (true) {
-            yield(machineB.await())
-        }
+        // TODO Check whether this logic is correct.
+        // When `machineB` stops `await` throws `AwaitFailedException`
+        // which must be caught before it reaches `transformItem` and interrupts it.
+        try {
+            while (true) {
+                yield(machineB.await())
+            }
+        } catch (e: AwaitFailedException) {}
     }
 }
 
