@@ -1,4 +1,4 @@
-package cz.radekm.machines
+package cz.radekm.machines.experimental
 
 import kotlin.test.Test
 import kotlin.test.assertEquals

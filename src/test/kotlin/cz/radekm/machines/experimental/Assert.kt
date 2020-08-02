@@ -1,5 +1,9 @@
-package cz.radekm.machines
+package cz.radekm.machines.experimental
 
+import cz.radekm.machines.Machine
+import cz.radekm.machines.PAUSED
+import cz.radekm.machines.STOPPED
+import cz.radekm.machines.StopMachineException
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 

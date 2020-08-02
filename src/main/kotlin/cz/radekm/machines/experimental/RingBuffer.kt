@@ -1,4 +1,4 @@
-package cz.radekm.machines
+package cz.radekm.machines.experimental
 
 interface Appendable<T> {
     fun isFull(): Boolean

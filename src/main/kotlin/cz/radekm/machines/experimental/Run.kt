@@ -1,4 +1,7 @@
-package cz.radekm.machines
+package cz.radekm.machines.experimental
+
+import cz.radekm.machines.Machine
+import cz.radekm.machines.PAUSED
 
 interface CanResume {
     fun canResume(): Boolean

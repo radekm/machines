@@ -1,8 +1,8 @@
-package cz.radekm.machines
+package cz.radekm.machines.experimental
 
+import cz.radekm.machines.Machine
 import java.time.ZonedDateTime
 import java.util.*
-import kotlin.test.Test
 
 sealed class Request {
     var requestId: String? = null
