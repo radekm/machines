@@ -11,18 +11,27 @@ import kotlin.experimental.ExperimentalTypeInference
 val <A> Machine<Cell<A>>.output
         get() = machineContext
 
-class AwaitFailedException : Exception()
-
-fun <A> Machine<Cell<A>>.await(): A {
+fun <A> Machine<Cell<A>>.await(): Option<A> {
     while (state != STOPPED && output.isEmpty()) {
         resume()
     }
 
     if (output.isEmpty()) {
-        throw AwaitFailedException()
+        return None
     }
 
-    return output.take()
+    return Some(output.take())
+}
+
+inline fun <A> Machine<Cell<A>>.forEachAwaited(block: (A) -> Unit) {
+    do {
+        while (state != STOPPED && output.isEmpty()) {
+            resume()
+        }
+        if (output.isFull()) {
+            block(output.take())
+        }
+    } while (state != STOPPED)
 }
 
 /**
@@ -34,7 +43,7 @@ fun <A> Machine<Cell<A>>.close() {
         cancel()
     }
     stoppedBy
-            ?.takeUnless { it is StopMachineException || it is AwaitFailedException }
+            ?.takeUnless { it is StopMachineException }
             ?.let { throw it }
 }
 
@@ -64,15 +73,15 @@ interface GeneratorScope<O> {
     // TODO Is this correct?
     suspend fun yieldAll(generator: Generator<O>) {
         generator.withMachine { machine ->
-            while (true) {
-                yield(machine.await())
+            machine.forEachAwaited {
+                yield(it)
             }
         }
     }
 }
 
 interface GeneratorTransformScope<I, O> : GeneratorScope<O> {
-    fun await(): I
+    fun await(): Option<I>
 }
 
 private class GeneratorScopeImpl<O>(private val parentScope: MachineScope<Cell<O>>) : GeneratorScope<O> {
@@ -92,7 +101,7 @@ private class GeneratorTransformScopeImpl<I, O>(
         private val parentScope: GeneratorScope<O>,
         private val inputMachine: Machine<Cell<I>>
 ): GeneratorTransformScope<I, O> {
-    override fun await(): I = inputMachine.await()
+    override fun await(): Option<I> = inputMachine.await()
     override suspend fun yield(o: O) = parentScope.yield(o)
 }
 
@@ -108,7 +117,11 @@ class Generator<A>(private val block: suspend GeneratorScope<A>.() -> Unit) {
     fun <B> transformItem(@BuilderInference block: suspend GeneratorTransformScope<A, B>.(A) -> Unit): Generator<B> = transform {
         while (true) {
             val a = await()
-            block(a)
+            if (a.isPresent) {
+                block(a.get())
+            } else {
+                break
+            }
         }
     }
 
@@ -153,21 +166,19 @@ fun <A> generatorOf(vararg elements: A): Generator<A> = if (elements.isEmpty()) 
 
 fun <A> Generator<A>.take(howMany: Int): Generator<A> = transform {
     repeat(howMany) {
-        yield(await())
+        val a = await()
+        if (a.isPresent) {
+            yield(a.get())
+        } else {
+            return@repeat
+        }
     }
 }
 
 fun <A, B> Generator<A>.flatMap(f: (A) -> Generator<B>): Generator<B> = transformItem { a ->
     val generatorB = f(a)
     generatorB.withMachine { machineB ->
-        // TODO Check whether this logic is correct.
-        // When `machineB` stops `await` throws `AwaitFailedException`
-        // which must be caught before it reaches `transformItem` and interrupts it.
-        try {
-            while (true) {
-                yield(machineB.await())
-            }
-        } catch (e: AwaitFailedException) {}
+        machineB.forEachAwaited { yield(it) }
     }
 }
 
@@ -178,7 +189,13 @@ infix fun <A, B> Generator<A>.zip(other: Generator<B>): Generator<Pair<A, B>> = 
     withMachine { machineA ->
         other.withMachine { machineB ->
             while (true) {
-                yield(machineA.await() to machineB.await())
+                val a = machineA.await()
+                val b = machineB.await()
+                if (a.isPresent && b.isPresent) {
+                    yield(a.get() to b.get())
+                } else {
+                    break
+                }
             }
         }
     }
