@@ -14,6 +14,7 @@ fun <T : Any> generateGenerator(seed: T?, nextFunction: (T) -> T?): Generator<T>
             var s = seed
             while (s != null) {
                 // Hmm, compiler warns that `!!` is unnecessary but when I remove it code doesn't compile :-(
+                // It seems that `@BuilderInference` is broken.
                 yield(s!!)
                 s = nextFunction(s)
             }
