@@ -3,8 +3,13 @@ package cz.radekm.machines
 import kotlin.experimental.ExperimentalTypeInference
 
 // TODO Exception handling and propagation through generators!!!
-//      We should define behavior for special exceptions `StopMachineException` and `AwaitFailedException`
+//      We should define behavior for special exception `StopMachineException`
 //      and also for other critical and non-critical exceptions.
+// Generally functions like `map`, `flatMap`, `forEach` should not catch exception
+// from the function given as their parameter. Such exception should propagate.
+// If any function/combinator operates on machines it should propagate exception
+// from machine and ensure that machine is stopped.
+// We should not use `finally` because it could suppress original exception.
 
 // region Extensions for machines
 
@@ -15,6 +20,9 @@ fun <A> Machine<Cell<A>>.await(): Option<A> {
     while (state != STOPPED && output.isEmpty()) {
         resume()
     }
+    // TODO Should we propagate `StopMachineException`? Probably yes, because we're not cancelling.
+    //      But this exception may be later ignored if closing a machine - maybe we should wrap it.
+    stoppedBy?.let { throw it }
 
     if (output.isEmpty()) {
         return None
@@ -28,6 +36,9 @@ inline fun <A> Machine<Cell<A>>.forEachAwaited(block: (A) -> Unit) {
         while (state != STOPPED && output.isEmpty()) {
             resume()
         }
+        // TODO Should we propagate `StopMachineException` from await?
+        stoppedBy?.let { throw it }
+
         if (output.isFull()) {
             block(output.take())
         }

@@ -19,30 +19,41 @@ import kotlin.test.assertTrue
 
 class SequenceBuilderTestForGenerators {
     fun <A> Generator<A>.iterator() = object : Iterator<A> {
-        val machine = toMachine()
-        var next = Cell<A>()
+        private val machine = toMachine()
+        private var next: Option<A> = None
+        private var failed = false
 
         fun ensureNext() {
-            if (next.isEmpty()) {
-                while (machine.state != STOPPED && machine.output.isEmpty()) {
-                    machine.resume()
-                }
-                if (machine.output.isFull()) {
-                    next.put(machine.output.take())
+            if (next.isEmpty) {
+                try {
+                    next = machine.await()
+                } catch (e: Throwable) {
+                    // `await` throwing means that `machine` stopped. So no need to cleanup or close.
+                    failed = true
+                    throw e
                 }
             }
         }
 
         override fun hasNext(): Boolean {
+            if (failed)
+                throw IllegalStateException()
+
             ensureNext()
-            return next.isFull()
+            return next.isPresent
         }
 
         override fun next(): A {
+            if (failed)
+                throw IllegalStateException()
+
             ensureNext()
-            if (next.isEmpty())
+            if (next.isEmpty)
                 throw NoSuchElementException()
-            else return next.take()
+            return next.get().let {
+                next = None
+                it
+            }
         }
 
     }
